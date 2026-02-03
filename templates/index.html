@@ -3,39 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ServerLoRa Dashboard</title>
-    <meta http-equiv="refresh" content="5">
+    <title>Monitor LoRa - Orange Pi</title>
     <style>
-        body { font-family: sans-serif; background: #1a1a1a; color: #fff; margin: 0; padding: 20px; }
-        .container { display: flex; gap: 20px; }
-        .gallery { flex: 3; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px; }
-        .logs { flex: 1; background: #333; padding: 15px; border-radius: 8px; height: 80vh; overflow-y: auto; }
-        .card { background: #222; border: 1px solid #444; border-radius: 8px; overflow: hidden; }
-        .card img { width: 100%; display: block; }
-        .card-info { padding: 10px; font-size: 0.8rem; color: #aaa; }
-        h1 { color: #ff9800; border-bottom: 2px solid #ff9800; padding-bottom: 10px; }
-        .log-item { border-bottom: 1px solid #444; padding: 5px 0; font-family: monospace; font-size: 0.9rem; }
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 { color: #03dac6; }
+        .container {
+            margin-top: 20px;
+            border: 2px solid #333;
+            display: inline-block;
+            padding: 10px;
+            border-radius: 10px;
+            background-color: #1e1e1e;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+            min-width: 300px;
+            min-height: 200px;
+            background-color: #000;
+        }
+        .status { margin-top: 10px; font-size: 0.9em; color: #888; }
     </style>
 </head>
 <body>
-    <h1>DetectLora Server (Orange Pi 3)</h1>
+
+    <h1>📡 Receptor de Imagens LoRa</h1>
+    
     <div class="container">
-        <div class="gallery">
-            {% for img in images %}
-            <div class="card">
-                <a href="{{ url_for('static', filename='images/' + img) }}" target="_blank">
-                    <img src="{{ url_for('static', filename='images/' + img) }}" alt="Detecção">
-                </a>
-                <div class="card-info">{{ img }}</div>
-            </div>
-            {% endfor %}
-        </div>
-        <div class="logs">
-            <h3>Histórico de Processamento</h3>
-            {% for log in logs %}
-            <div class="log-item">> {{ log }}</div>
-            {% endfor %}
-        </div>
+        <img id="cam-image" src="" alt="Aguardando imagem...">
+        <div class="status" id="status-text">Aguardando conexão...</div>
     </div>
+
+    <script>
+        let currentImage = "";
+
+        function checkNewImage() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(data => {
+                    // Se a imagem mudou, atualiza o SRC
+                    if (data.latest_image && data.latest_image !== currentImage) {
+                        currentImage = data.latest_image;
+                        
+                        // Adiciona um timestamp para evitar cache do navegador
+                        const imagePath = "/static/received/" + currentImage + "?t=" + new Date().getTime();
+                        
+                        document.getElementById('cam-image').src = imagePath;
+                        document.getElementById('status-text').innerText = "Última imagem: " + currentImage;
+                        console.log("Nova imagem carregada: " + currentImage);
+                    }
+                })
+                .catch(err => console.error("Erro ao verificar status:", err));
+        }
+
+        // Verifica a cada 2 segundos
+        setInterval(checkNewImage, 2000);
+    </script>
+
 </body>
 </html>
