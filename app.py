@@ -1,115 +1,104 @@
+from flask import Flask, render_template, jsonify
 import socket
 import threading
 import os
-import cv2
 import time
-from datetime import datetime
-from flask import Flask, render_template, jsonify
-from ultralytics import YOLO
-
-# --- CONFIGURAÇÕES ---
-# Detecta o caminho absoluto da pasta atual (para funcionar no Desktop da Orange Pi)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Caminhos
-RAW_FOLDER = os.path.join(BASE_DIR, 'raw_data')
-ANNOTATED_FOLDER = os.path.join(BASE_DIR, 'static', 'images')
-MODEL_PATH = os.path.join(BASE_DIR, 'models', 'best.pt')
-
-# Rede
-TCP_IP = '0.0.0.0' # Ouve em todas as interfaces
-TCP_PORT = 12345
-WEB_PORT = 5000
-
-# Garante que as pastas existem
-os.makedirs(RAW_FOLDER, exist_ok=True)
-os.makedirs(ANNOTATED_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
 
-# Variável global para armazenar logs recentes
-system_logs = []
+# --- CONFIGURAÇÕES ---
+HOST_IP = '0.0.0.0'
+PORT_TCP_LORA = 12345   # Porta onde o ESP32 conecta
+PORT_WEB_SITE = 5000    # Porta onde VOCÊ conecta (Navegador)
+SAVE_DIR = "static/received"
 
-# --- CARREGAR MODELO ---
-print(" Carregando modelo Anhangá IA...")
-try:
-    model = YOLO(MODEL_PATH)
-    print(" Modelo carregado!")
-except Exception as e:
-    print(f" Erro: Modelo não encontrado em {MODEL_PATH}. Copie o best.pt para a pasta models!")
-    model = None
+# Garante que a pasta existe
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-# --- FUNÇÃO DE IA ---
-def process_image(raw_path, filename):
-    if model is None: return
+# Variável global para saber qual é a foto mais recente
+latest_image_file = None
 
-    print(f" Processando: {filename}")
-    # Inferência
-    results = model.predict(raw_path, conf=0.5, save=False)
+# --- FUNÇÃO 1: RECEBEDOR LORA (Roda em segundo plano) ---
+def lora_receiver_thread():
+    global latest_image_file
     
-    # Desenhar caixas e salvar na pasta estática (pública para web)
-    annotated_frame = results[0].plot()
-    save_path = os.path.join(ANNOTATED_FOLDER, filename)
-    cv2.imwrite(save_path, annotated_frame)
-    
-    # Log
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    detection_count = len(results[0].boxes)
-    log = f"[{timestamp}] {filename}: {detection_count} objetos detectados."
-    system_logs.insert(0, log) # Adiciona no topo
-    print(f" Salvo em: {save_path}")
-
-# --- SERVIDOR TCP (RECEBEDOR) ---
-def tcp_server_thread():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Cria o Socket TCP
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        server.bind((TCP_IP, TCP_PORT))
-        server.listen(5)
-        print(f" TCP Receiver ouvindo na porta {TCP_PORT}")
+        server_socket.bind((HOST_IP, PORT_TCP_LORA))
+        server_socket.listen(1)
+        print(f" [TCP] Aguardando ESP32 na porta {PORT_TCP_LORA}...")
     except Exception as e:
         print(f" Erro ao abrir porta TCP: {e}")
         return
 
     while True:
-        client, addr = server.accept()
-        print(f" Conexão de {addr}")
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"capture_{timestamp}.jpg"
-        filepath = os.path.join(RAW_FOLDER, filename)
-        
         try:
-            with open(filepath, "wb") as f:
-                while True:
-                    data = client.recv(4096)
-                    if not data: break
-                    f.write(data)
-            
-            client.close()
-            # Assim que salvar, manda para a IA
-            process_image(filepath, filename)
-            
-        except Exception as e:
-            print(f"Erro ao receber imagem: {e}")
+            client_socket, addr = server_socket.accept()
+            print(f" [TCP] Conexão recebida de: {addr}")
 
-# --- SERVIDOR WEB (FLASK) ---
+            # Define o nome do arquivo (temporário, pois ainda é bruto)
+            timestamp = int(time.time())
+            filename_bin = f"img_{timestamp}.bin"     # Arquivo bruto (com cabeçalhos)
+            filename_jpg = f"img_{timestamp}.jpg"     # Arquivo final (imagem)
+            filepath_bin = os.path.join(SAVE_DIR, filename_bin)
+            filepath_jpg = os.path.join(SAVE_DIR, filename_jpg)
+
+            # Timeout: Se o ESP32 parar de mandar dados por 4s, fecha o arquivo
+            client_socket.settimeout(4.0)
+
+            # 1. Recebe os dados e salva no arquivo .bin
+            with open(filepath_bin, 'wb') as f:
+                print(" Recebendo dados...")
+                while True:
+                    try:
+                        data = client_socket.recv(4096)
+                        if not data: break
+                        f.write(data)
+                    except socket.timeout:
+                        print(" Fim da transmissão (Timeout).")
+                        break
+                    except Exception as e:
+                        print(f"Erro na conexão: {e}")
+                        break
+            
+            client_socket.close()
+            print(f" Arquivo salvo: {filename_bin}")
+
+            # --- AQUI ENTRA A SUA LÓGICA DE DESCOMPRESSÃO ---
+            # Como você disse que a descompressão é no servidor:
+            # Você precisa pegar o 'filepath_bin', tirar o cabeçalho Cosmic
+            # e salvar como 'filepath_jpg'.
+            
+            # POR ENQUANTO (Gambiarra para teste):
+            # Vamos assumir que o arquivo JÁ É um JPG válido (se não tiver cabeçalho complexo)
+            # Apenas renomeamos para o site conseguir ler.
+            if os.path.exists(filepath_bin):
+                os.rename(filepath_bin, filepath_jpg)
+                latest_image_file = filename_jpg # Atualiza o site
+                print(f" Imagem disponível para visualização: {filename_jpg}")
+
+        except Exception as e:
+            print(f"Erro no loop do servidor: {e}")
+            time.sleep(1)
+
+# --- FUNÇÃO 2: O SITE (FLASK) ---
+
+# Inicia o recebedor TCP em uma thread separada (paralela)
+thread = threading.Thread(target=lora_receiver_thread, daemon=True)
+thread.start()
+
 @app.route('/')
 def index():
-    # Lista as imagens processadas (mais recentes primeiro)
-    images = sorted(os.listdir(ANNOTATED_FOLDER), reverse=True)
-    return render_template('index.html', images=images, logs=system_logs)
+    # Mostra a página com a última imagem
+    return render_template('index.html', image_file=latest_image_file)
 
-@app.route('/api/status')
+@app.route('/status')
 def status():
-    # Rota para atualização automática via AJAX (opcional, mas bom ter)
-    return jsonify(logs=system_logs)
+    # O JavaScript chama isso a cada 2s para ver se mudou a foto
+    return jsonify({'latest_image': latest_image_file})
 
 if __name__ == '__main__':
-    # Inicia o TCP em background
-    t = threading.Thread(target=tcp_server_thread)
-    t.daemon = True
-    t.start()
-    
-    # Inicia o Site
-    print(f" Servidor Web rodando. Acesse: http://192.168.0.1:{WEB_PORT}")
-    app.run(host='0.0.0.0', port=WEB_PORT, debug=False)
+    print(f"[WEB] Site rodando em http://{HOST_IP}:{PORT_WEB_SITE}")
+    app.run(host=HOST_IP, port=PORT_WEB_SITE, debug=False)
