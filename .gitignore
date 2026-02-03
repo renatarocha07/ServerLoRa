@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+raw_data/*
+static/images/*
+models/*.pt
+!models/.gitkeep
