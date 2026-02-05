@@ -8,63 +8,147 @@
         body {
             background-color: #121212;
             color: #e0e0e0;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             text-align: center;
             padding: 20px;
+            margin: 0;
         }
-        h1 { color: #03dac6; }
+        h1 { color: #03dac6; margin-bottom: 10px; }
+        
         .container {
             margin-top: 20px;
-            border: 2px solid #333;
+            border: 1px solid #333;
             display: inline-block;
-            padding: 10px;
-            border-radius: 10px;
+            padding: 15px;
+            border-radius: 12px;
             background-color: #1e1e1e;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
-        img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 5px;
-            min-width: 300px;
-            min-height: 200px;
+
+        /* Área da Imagem */
+        .img-wrapper {
+            width: 320px;  /* Dobro de 160px para melhor visualização */
+            height: 240px; /* Dobro de 120px */
             background-color: #000;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border: 1px solid #444;
+            margin: 0 auto;
         }
-        .status { margin-top: 10px; font-size: 0.9em; color: #888; }
+
+        img {
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated; /* Mantém os pixels nítidos ao dar zoom */
+            display: none; /* Esconde até carregar */
+        }
+
+        .loader {
+            color: #888;
+            font-size: 0.9em;
+        }
+
+        .status { 
+            margin-top: 15px; 
+            font-size: 0.9em; 
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+        }
+
+        .indicator {
+            height: 10px;
+            width: 10px;
+            background-color: #cf6679;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .online { background-color: #03dac6; box-shadow: 0 0 8px #03dac6; }
     </style>
 </head>
 <body>
 
-    <h1>📡 Receptor de Imagens LoRa</h1>
+    <h1>📡 CLoRa Vision</h1>
     
     <div class="container">
-        <img id="cam-image" src="" alt="Aguardando imagem...">
-        <div class="status" id="status-text">Aguardando conexão...</div>
+        <div class="img-wrapper">
+            <span id="loader-text" class="loader">Aguardando dados LoRa...</span>
+            <img id="cam-image" src="" alt="Imagem LoRa" onload="imgLoaded()" onerror="imgError()">
+        </div>
+        
+        <div class="status">
+            <span id="filename-text">Nenhuma imagem</span>
+            <div>
+                <span id="conn-indicator" class="indicator"></span>
+                <span id="conn-text">Offline</span>
+            </div>
+        </div>
     </div>
 
     <script>
-        let currentImage = "";
+        let lastTimestamp = 0;
 
-        function checkNewImage() {
-            fetch('/status')
-                .then(response => response.json())
-                .then(data => {
-                    // Se a imagem mudou, atualiza o SRC
-                    if (data.latest_image && data.latest_image !== currentImage) {
-                        currentImage = data.latest_image;
-                        
-                        // Adiciona um timestamp para evitar cache do navegador
-                        const imagePath = "/static/received/" + currentImage + "?t=" + new Date().getTime();
-                        
-                        document.getElementById('cam-image').src = imagePath;
-                        document.getElementById('status-text').innerText = "Última imagem: " + currentImage;
-                        console.log("Nova imagem carregada: " + currentImage);
-                    }
-                })
-                .catch(err => console.error("Erro ao verificar status:", err));
+        function imgLoaded() {
+            document.getElementById('loader-text').style.display = 'none';
+            document.getElementById('cam-image').style.display = 'block';
         }
 
-        // Verifica a cada 2 segundos
-        setInterval(checkNewImage, 2000);
+        function imgError() {
+            // Se der erro ao carregar (arquivo sendo escrito), mantém o anterior ou texto
+            // Não faz nada para evitar piscar
+        }
+
+        function updateStatus(online) {
+            const ind = document.getElementById('conn-indicator');
+            const txt = document.getElementById('conn-text');
+            if(online) {
+                ind.classList.add('online');
+                txt.innerText = "Online";
+                txt.style.color = "#03dac6";
+            } else {
+                ind.classList.remove('online');
+                txt.innerText = "Offline";
+                txt.style.color = "#cf6679";
+            }
+        }
+
+        function checkNewImage() {
+            // Adiciona timestamp na requisição fetch para evitar cache JSON
+            fetch('/status?_=' + new Date().getTime())
+                .then(response => {
+                    updateStatus(true);
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.latest_image) {
+                        const imgElement = document.getElementById('cam-image');
+                        const statusText = document.getElementById('filename-text');
+
+                        // Atualiza a imagem sempre (mesmo que o nome seja o mesmo)
+                        // Usamos cache breaker (?t=) para forçar o navegador a recarregar
+                        const cacheBreaker = new Date().getTime();
+                        const newSrc = "/static/received/" + data.latest_image + "?t=" + cacheBreaker;
+                        
+                        // Só atualiza o DOM se mudou o nome OU passou um tempo (refresh forçado)
+                        // Aqui forçamos a atualização a cada ciclo para ver os tiles chegando
+                        imgElement.src = newSrc;
+                        statusText.innerText = data.latest_image;
+                    }
+                })
+                .catch(err => {
+                    console.error("Erro conexão:", err);
+                    updateStatus(false);
+                });
+        }
+
+        // Atualiza a cada 500ms (0.5 segundos) para ver o efeito de construção
+        setInterval(checkNewImage, 500);
     </script>
 
 </body>
