@@ -31,9 +31,20 @@ def save_frame():
     timestamp = int(time.time())
     filename = f"imagem_{timestamp}.jpg"
     filepath = os.path.join(SAVE_FOLDER, filename)
-    cv2.imwrite(filepath, current_frame)
+    
+    # --- REDIMENSIONAMENTO PARA VISUALIZAÇÃO ---
+    # Multiplica o tamanho por 4 (vai de 160x120 para 640x480)
+    scale_factor = 4
+    new_w = IMG_W * scale_factor
+    new_h = IMG_H * scale_factor
+    
+    # cv2.INTER_NEAREST garante que a imagem esticada não fique embaçada (borrada)
+    enlarged_frame = cv2.resize(current_frame, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+    # Salva a imagem ampliada para a página web
+    cv2.imwrite(filepath, enlarged_frame)
     latest_image_name = filename
-    print(f" [IO] Imagem salva: {filename}")
+    print(f" [IO] Imagem ampliada para {new_w}x{new_h} e salva: {filename}")
 
 # --- FUNÇÃO DE DESCOMPRESSÃO POR DICIONÁRIO ---
 def decompress_dict(compressed_payload, max_out=256):
