@@ -14,16 +14,16 @@ PORT_TCP = 12345
 PORT_WEB = 5000
 SAVE_FOLDER = "static/received"
 
-# A imagem recebida inteira tem 16x16
-IMG_W, IMG_H = 20, 20
+# A imagem final montada tem 160x120, formada por pacotes de 20x20
+IMG_W, IMG_H = 160, 120
+TILE_W, TILE_H = 20, 20
+TILES_X = IMG_W // TILE_W 
 
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 latest_image_name = "aguardando.jpg"
 
-# Canvas Global agora é do tamanho real recebido (16x16)
-current_frame = np.zeros((IMG_H, IMG_W), dtype=np.uint8)
-
-def save_frame():
+# Canvas Global agora suporta a imagem inteira
+current_frame = np.full((IMG_H, IMG_W), 30, dtype=np.uint8)def save_frame():
     global latest_image_name
     timestamp = int(time.time())
     filename = f"imagem_{timestamp}.jpg"
