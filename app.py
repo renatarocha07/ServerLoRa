@@ -22,21 +22,22 @@ TILES_X = IMG_W // TILE_W
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 latest_image_name = "aguardando.jpg"
 
-# Canvas Global agora suporta a imagem inteira
-current_frame = np.full((IMG_H, IMG_W), 30, dtype=np.uint8)def save_frame():
+# Canvas Global agora suporta a imagem inteira de 160x120
+current_frame = np.full((IMG_H, IMG_W), 30, dtype=np.uint8)
+
+def save_frame():
     global latest_image_name
     timestamp = int(time.time())
     filename = f"imagem_{timestamp}.jpg"
     filepath = os.path.join(SAVE_FOLDER, filename)
     
     # --- A MÁGICA DA AMPLIAÇÃO ACONTECE AQUI ---
-    # Transforma o 16x16 recebido em um quadradão de 640x640 para a Web
-    # INTER_NEAREST garante que os pixels fiquem nítidos como "blocos" e não borrados
-    enlarged_frame = cv2.resize(current_frame, (640, 640), interpolation=cv2.INTER_NEAREST)
+    # Transforma o 160x120 recebido em um quadro de 640x480 para a Web (Proporção 4:3)
+    # INTER_NEAREST garante que os pixels fiquem nítidos
+    enlarged_frame = cv2.resize(current_frame, (640, 480), interpolation=cv2.INTER_NEAREST)
 
     cv2.imwrite(filepath, enlarged_frame)
     latest_image_name = filename
-    print(f" [IO] Imagem renderizada em 640x640 e salva: {filename}")
 
 # --- FUNÇÃO DE DESCOMPRESSÃO POR DICIONÁRIO ---
 def decompress_dict(compressed_payload, max_out=256):
@@ -93,6 +94,7 @@ def tcp_receiver_thread():
 
                 # Decodifica a estrutura
                 if len(packet_data) >= 7:
+                    tile_index = packet_data[1]  # O XIAO manda o ID do Tile no DevID (Byte 1)
                     pkg_type = packet_data[2]
                     internal_mode = packet_data[6]
 
@@ -102,18 +104,29 @@ def tcp_receiver_thread():
                         try:
                             # Verifica se o modo é o Dicionário (4)
                             if internal_mode == 4:
-                                final_pixel_data = decompress_dict(image_payload, IMG_W * IMG_H)
+                                # Tenta descomprimir APENAS os 400 pixels do Tile (20x20)
+                                final_pixel_data = decompress_dict(image_payload, TILE_W * TILE_H)
                                 
-                                if final_pixel_data and len(final_pixel_data) == (IMG_W * IMG_H):
-                                    # Atualiza o canvas global com a nova imagem 16x16 inteira
-                                    global current_frame
-                                    current_frame = np.frombuffer(final_pixel_data, dtype=np.uint8).reshape((IMG_H, IMG_W))
-                                    print(" [OK] Frame de câmera recebido com sucesso!")
+                                if final_pixel_data and len(final_pixel_data) == (TILE_W * TILE_H):
+                                    # Transforma os bytes em uma matriz 20x20
+                                    tile = np.frombuffer(final_pixel_data, dtype=np.uint8).reshape((TILE_H, TILE_W))
                                     
-                                    # Salva e amplia
-                                    save_frame()
+                                    # Calcula a posição exata desse bloco no Canvas 160x120
+                                    col = tile_index % TILES_X
+                                    row = tile_index // TILES_X
+                                    px_x = col * TILE_W
+                                    px_y = row * TILE_H
+                                    
+                                    # Insere o Tile no Canvas Global se estiver dentro dos limites
+                                    if px_y < IMG_H and px_x < IMG_W:
+                                        global current_frame
+                                        current_frame[px_y:px_y+TILE_H, px_x:px_x+TILE_W] = tile
+                                        print(f" [OK] Tile {tile_index}/47 montado.")
+                                        
+                                        # Atualiza a página web a cada pedacinho recebido
+                                        save_frame()
                                 else:
-                                    print(" [ERRO] Tamanho de descompressão inválido.")
+                                    print(f" [ERRO] Tamanho de descompressão inválido no Tile {tile_index}.")
                         except Exception as e:
                             print(f" [ERRO IMG] Falha no processamento: {e}")
                             
