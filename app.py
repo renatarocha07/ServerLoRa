@@ -15,7 +15,7 @@ PORT_WEB = 5000
 SAVE_FOLDER = "static/received"
 
 # A imagem recebida inteira tem 16x16
-IMG_W, IMG_H = 16, 16
+IMG_W, IMG_H = 20, 20
 
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 latest_image_name = "aguardando.jpg"
